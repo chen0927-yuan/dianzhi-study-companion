@@ -1,0 +1,28 @@
+# ===== 敏感文件：绝不入库 =====
+# 环境变量（含 API Key）
+.env
+*.env
+!.env.example
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ===== Chroma 向量库（可随时重建）=====
+backend/chroma_db/
+
+# ===== 日志 =====
+dianzhi-logs/
+logs/
+*.log
+
+# ===== 系统 =====
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ===== 临时 =====
+*.tmp

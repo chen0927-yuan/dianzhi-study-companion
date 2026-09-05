@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>电智学伴 - Phase 2 RAG</title>
+  <style>
+    body { font-family: 'Microsoft YaHei', sans-serif; max-width: 860px; margin: 0 auto; padding: 20px; background: #050d1a; color: #fff; }
+    h1 { color: #00d4ff; text-align: center; }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 15px 0; }
+    select { padding: 8px; background: #0a1628; color: #00d4ff; border: 1px solid #00d4ff; }
+    .rag-toggle { display: flex; align-items: center; gap: 6px; color: #9adcff; font-size: 14px; cursor: pointer; user-select: none; }
+    .rag-toggle input { accent-color: #00d4ff; width: 16px; height: 16px; cursor: pointer; }
+    textarea { width: 100%; height: 100px; background: #0a1628; color: #fff; border: 1px solid #00d4ff; padding: 10px; box-sizing: border-box; }
+    button { background: #00d4ff; color: #000; border: none; padding: 12px 30px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+    button:hover { background: #00ffcc; }
+    button:disabled { background: #555; cursor: not-allowed; }
+    .reply { margin-top: 20px; padding: 15px; background: #0a1628; border-left: 4px solid #00d4ff; white-space: pre-wrap; line-height: 1.6; }
+    .loading { color: #00ffcc; }
+    .history { margin-top: 25px; }
+    .msg { margin: 10px 0; }
+    .msg.user { text-align: right; }
+    .bubble { display: inline-block; max-width: 85%; text-align: left; padding: 10px 14px; border-radius: 10px; white-space: pre-wrap; line-height: 1.6; }
+    .msg.user .bubble { background: #0e3a52; color: #fff; border-bottom-right-radius: 2px; }
+    .msg.bot .bubble { background: #0a1628; border: 1px solid #00d4ff44; border-bottom-left-radius: 2px; }
+    .meta { font-size: 12px; color: #667; margin-top: 4px; }
+    /* 引用卡片 */
+    .cites { margin-top: 8px; padding: 8px 10px; background: #071120; border: 1px dashed #00d4ff66; border-radius: 6px; }
+    .cites-title { font-size: 12px; color: #00d4ff; margin-bottom: 4px; }
+    .cite { font-size: 12px; color: #cfe9ff; padding: 2px 0; border-bottom: 1px solid #0e2238; }
+    .cite:last-child { border-bottom: none; }
+    .cite .pg { color: #ffd75e; font-weight: bold; }
+    .cite .src { color: #00ffcc; }
+    .cite .snip { color: #7fa8c9; font-size: 11px; display: block; margin-top: 1px; }
+    .cite .warn { color: #ff7b72; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>⚡ 电智学伴 Phase 2（教材引用）</h1>
+
+  <div class="controls">
+    <label>模式：
+      <select id="mode">
+        <option value="刷题模式">📝 刷题模式（直接给答案）</option>
+        <option value="答疑模式">❓ 答疑模式（概念讲解）</option>
+        <option value="复试模式">🎓 复试模式（口述训练）</option>
+      </select>
+    </label>
+    <label class="rag-toggle">
+      <input type="checkbox" id="rag" checked> 📚 基于教材检索回答（引用精确页码）
+    </label>
+  </div>
+
+  <textarea id="question" placeholder="输入你的电气工程问题...&#10;例如：戴维南定理的内容是什么？出自教材哪一页？&#10;例如：解释为什么异步电机转子转速低于同步转速"></textarea>
+  <br>
+  <button id="sendBtn" onclick="ask()">发送问题</button>
+
+  <div id="status" class="meta"></div>
+  <div id="history" class="history"></div>
+
+  <script>
+    let first = true;
+
+    async function ask() {
+      const msgEl = document.getElementById('question');
+      const msg = msgEl.value.trim();
+      const mode = document.getElementById('mode').value;
+      const useRag = document.getElementById('rag').checked;
+      const btn = document.getElementById('sendBtn');
+      if (!msg) { alert('请输入问题'); return; }
+
+      appendMsg('user', msg, mode, useRag ? '📚 教材检索模式' : '');
+      msgEl.value = '';
+      btn.disabled = true;
+      document.getElementById('status').textContent = useRag ? '🔍 检索教材 + 生成回答中（首次加载本地 bge 模型约需 10~30s）...' : '⚡ 电智学伴思考中...';
+
+      try {
+        const endpoint = useRag ? '/chat-rag' : '/chat';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg, mode: mode })
+        });
+        const data = await res.json();
+        let extra = 'Token: ' + (data.tokens_used ?? '?');
+        if (useRag && data.contexts_used != null) extra += ' ｜ 引用片段 ' + data.contexts_used + ' 条';
+        if (useRag && data.kb_empty) {
+          appendMsg('bot', data.reply, data.mode || mode, extra);
+        } else {
+          appendMsg('bot', data.reply, data.mode || mode, extra);
+        }
+        if (useRag && data.citations && data.citations.length) {
+          renderCites(data.citations);
+        }
+        if (useRag && data.citation_check && data.citation_check.unmatched_pages) {
+          appendMsg('bot', '⚠ 页码核查：回答中提到但检索片段中不存在的页码：'
+            + data.citation_check.unmatched_pages.join('、') + '（请人工核对，可能为模型幻觉）');
+        }
+        document.getElementById('status').textContent = '';
+      } catch (e) {
+        appendMsg('bot', '连接失败：请确认后端已启动（backend 目录下执行 python main.py），'
+          + '并通过 http://localhost:8000 访问本页面，而不是直接双击打开。');
+        document.getElementById('status').textContent = '';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function renderCites(citations) {
+      const div = document.createElement('div');
+      div.className = 'msg bot';
+      const box = document.createElement('div');
+      box.className = 'cites';
+      const title = document.createElement('div');
+      title.className = 'cites-title';
+      title.textContent = '📖 引用来源（教材页码）';
+      box.appendChild(title);
+      citations.forEach(c => {
+        const row = document.createElement('div');
+        row.className = 'cite';
+        row.innerHTML = '';
+        const line = document.createElement('span');
+        line.innerHTML = '';
+        const src = document.createElement('span');
+        src.className = 'src';
+        src.textContent = '《' + c.source + '》';
+        const pg = document.createElement('span');
+        pg.className = 'pg';
+        pg.textContent = ' 第 ' + c.page + ' 页';
+        const sc = document.createElement('span');
+        sc.textContent = ' ｜ 相关度 ' + c.score;
+        const snip = document.createElement('span');
+        snip.className = 'snip';
+        snip.textContent = '…' + (c.snippet || '') + '…';
+        line.appendChild(src); line.appendChild(pg); line.appendChild(sc);
+        row.appendChild(line); row.appendChild(snip);
+        box.appendChild(row);
+      });
+      div.appendChild(box);
+      document.getElementById('history').appendChild(div);
+    }
+
+    function appendMsg(role, text, mode, extra) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+      div.appendChild(bubble);
+      if (mode || extra) {
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = (role === 'user' ? '【' + mode + '】' : '') + (extra || '');
+        div.appendChild(meta);
+      }
+      document.getElementById('history').appendChild(div);
+      // 双击 index.html 打开时提示错误
+      if (first && !window.location.protocol.startsWith('http')) {
+        appendMsg('bot', '⚠ 当前是通过 file:// 打开的，无法调用后端。\n请改为启动后端后访问 http://localhost:8000');
+        first = false;
+      }
+    }
+  </script>
+</body>
+</html>
