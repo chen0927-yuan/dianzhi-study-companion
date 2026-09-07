@@ -38,6 +38,8 @@
 <body>
   <h1>⚡ 电智学伴 Phase 2（教材引用）</h1>
 
+  <div id="kb-status" class="meta">📚 知识库加载中...</div>
+
   <div class="controls">
     <label>模式：
       <select id="mode">
@@ -60,6 +62,27 @@
 
   <script>
     let first = true;
+
+    // ---- D6 新增：页面打开时自动加载知识库状态 ----
+    function loadKbStatus() {
+      fetch('/kb/status')
+        .then(r => r.json())
+        .then(data => {
+          const el = document.getElementById('kb-status');
+          if (!data.enabled || data.total_chunks === 0) {
+            el.textContent = '📚 知识库为空：请先构建教材索引（py -3.12 -m kb.build_kb --pdf <教材.pdf>）';
+            return;
+          }
+          const names = (data.sources || [])
+            .map(s => s.title + '（' + s.pages + '页/' + s.chunks + '段）')
+            .join('、');
+          el.textContent = '📚 知识库：' + names + ' ｜ 共 ' + data.total_chunks + ' 个片段';
+        })
+        .catch(() => {
+          document.getElementById('kb-status').textContent = '📚 知识库状态获取失败（后端未运行？）';
+        });
+    }
+    loadKbStatus();   // 页面一打开就调用
 
     async function ask() {
       const msgEl = document.getElementById('question');
