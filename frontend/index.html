@@ -33,6 +33,9 @@
     .cite .src { color: #00ffcc; }
     .cite .snip { color: #7fa8c9; font-size: 11px; display: block; margin-top: 1px; }
     .cite .warn { color: #ff7b72; font-weight: bold; }
+    /* D8 新增：会话工具栏按钮 */
+    .tool-btn { background: #0a1628; color: #00d4ff; border: 1px solid #00d4ff66; padding: 12px 18px; font-weight: normal; margin-left: 8px; }
+    .tool-btn:hover { background: #0e2238; }
   </style>
 </head>
 <body>
@@ -56,12 +59,41 @@
   <textarea id="question" placeholder="输入你的电气工程问题...&#10;例如：戴维南定理的内容是什么？出自教材哪一页？&#10;例如：解释为什么异步电机转子转速低于同步转速"></textarea>
   <br>
   <button id="sendBtn" onclick="ask()">发送问题</button>
+  <button class="tool-btn" onclick="exportChat()">💾 导出记录</button>
+  <button class="tool-btn" onclick="clearChat()">🗑️ 清空对话</button>
 
   <div id="status" class="meta"></div>
   <div id="history" class="history"></div>
 
   <script>
     let first = true;
+    const chatLog = [];   // D8 新增：记录本次对话（供导出用）
+
+    // ---- D8 新增：导出对话记录（生成 .md 文件下载）----
+    function exportChat() {
+      if (chatLog.length === 0) { alert('还没有对话内容可以导出'); return; }
+      const lines = ['# 电智学伴 对话记录', '', '导出时间：' + new Date().toLocaleString('zh-CN'), ''];
+      for (const item of chatLog) {
+        lines.push(item.role === 'user' ? '## 我' : '## 电智学伴');
+        if (item.meta) lines.push('> ' + item.meta);
+        lines.push('', item.text, '');
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = '电智学伴-对话记录-' + new Date().toISOString().slice(0, 10) + '.md';
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // ---- D8 新增：清空当前对话 ----
+    function clearChat() {
+      if (chatLog.length === 0) { alert('当前没有对话'); return; }
+      if (!confirm('确定清空当前对话吗？此操作不可恢复。')) return;
+      chatLog.length = 0;
+      document.getElementById('history').replaceChildren();
+    }
 
     // ---- D6 新增：页面打开时自动加载知识库状态 ----
     function loadKbStatus() {
@@ -164,6 +196,7 @@
     }
 
     function appendMsg(role, text, mode, extra) {
+      chatLog.push({ role: role, text: text, meta: [mode, extra].filter(Boolean).join(' ｜ ') });  // D8：记录到内存
       const div = document.createElement('div');
       div.className = 'msg ' + role;
       const bubble = document.createElement('div');
